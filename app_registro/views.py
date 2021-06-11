@@ -1,96 +1,156 @@
-from django.shortcuts import render
-from django.http import HttpResponse
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import HttpResponse, JsonResponse
+from django.contrib import messages
+from django.urls import reverse
+from .models import Participante
+from .models import Conferencista
 
-participantes =  [
-            {
-                'nombre':'Juan',
-                'apellido':'Lopez',
-                'correo':'juan@gmail.com',
-                'twitter':'juan.lopez',
-            },
-            {
-                'nombre':'Maria',
-                'apellido':'Gomez',
-                'correo':'maria@gmail.com',
-                'twitter':'maria.gome',
-            },
-            {
-                'nombre':'Karla',
-                'apellido':'Herrera',
-                'correo':'karla.herre@gmail.com',
-                'twitter':'karla.herrera',
-            },
-            {
-                'nombre':'Juan',
-                'apellido':'Cruz',
-                'correo':'Juan.cruz@gmail.com',
-                'twitter':'juan.cru',
-            },
-        ]
-    
-# Create your views here.
+from telegram import Bot # pip install python-telegram-bot
+
+#TOKEN = '1689491589:AAFQs3K6z_CGP7Lw0i2SRZfU-CQXlRHTzWs' es del inge
+TOKEN = '1886451278:AAEliOBuWLxCsIIvfe8ZHx0_3lCZwp2sPFM'
+GROUP_ID = -546587370
+
+bot = Bot(token=TOKEN)
+
 def index(request):
+    return render(request, 'registro/index.html')
 
-    #clase 24/05
-    #import pdb; pdb.set_trace()
-    #nombre = request.GET.get("nombre")
-    #apellido = request.GET.get("apellido")
-    #edad = request.GET.get("edad")
 
-    #return HttpResponse(f'Buenas noches {nombre} {}, su edad es {edad} años???')
-
-    #clase 25/05
-    #n = request.GET.get("name")
-
-    # variable GET          :name
-    # variable de Python    :n
-    # variable de plantilla :x
-
-    # Enviar valores a la plantilla a travez del contexto
-    # el nombre que se le da a un diccionario que se pasa como tercer parametro eso es contexto
-
-    #recibir por Get los parametros para calcular la cuota de un prestamo bancario
-    # monto: m, Tasa: r, plazo: n
-    #m = int(request.GET.get("m"))
-    #r = int(request.GET.get("r"))
-    #n = int(request.GET.get("n"))
-
-    #paso 2: preparar los datos para suministrarlos a la formula
-    #r = r / 100 / 12
-    #n = n * 12
-    # paso 3: aplicar la formula: C = (m*r)/(1-(1+r)** -n)
-
-    #c = (m*r)/(1-(1+r)** -n)
-
-    #ctx = {
-    #    'cuota': c
-    #}
-
-    
-    if request.method == "POST":
-        # Aqui vendra la informacion del formulario
+def participantes(request):
+    if request.method == 'POST':
         nombre = request.POST.get('nombre')
         apellido = request.POST.get('apellido')
         correo = request.POST.get('correo')
         twitter = request.POST.get('twitter')
 
-        participantes.append({
-            'nombre':nombre,
-            'apellido':apellido,
-            'correo':correo,
-            'twitter':twitter
-        })
-        ctx = {
-            'participantes': participantes
-        }
+        p = Participante(nombre=nombre, apellido=apellido, correo=correo, twitter=twitter)
+        p.save()
 
-        #return HttpResponse("El participante ha sido registrado")
-        return render(request, "registro/index.html", ctx)
-    else:
-        # El metodo GET
-        # contexto que va para la plantilla
-        ctx = {
-            'participantes': participantes
-        }
-        return render(request, "registro/index.html", ctx)
+        msj = f'El participante {nombre} {apellido} ha sido registrado con éxito.'
+
+        # Codigo para enviar un mensaje a un grupo de telegram
+
+        try:
+            bot.send_message(chat_id=GROUP_ID, text=msj)
+        except Exception as e:
+            msj += f'<br/><strong>{e}</strong>'
+        
+        messages.add_message(request, messages.INFO, msj)
+
+        # return JsonResponse({
+        #     'nombre': nombre,
+        #     'apellido': apellido,
+        #     'correo': correo,
+        #     'twitter': twitter,
+        #     'OK': True,
+        #     'msj': 'El participante ha sido registrado con éxito'
+        # })
+
+        # ctx = {
+        #     'participantes': Participante.objects.all().order_by('nombre')
+        # }
+
+        # return HttpResponse('El participante ha sido registrado')
+        # return render(request, 'registro/participantes.html', ctx)
     
+    # Metodo GET, PUT, PATCH, DELETE
+
+    # La primera consulta: select * from participantes order by nombre desc
+    # Realizar un Queryset con el ORM de Django
+    activo = 'participantes'
+    q = request.GET.get('q')
+
+    if q:
+        data = Participante.objects.filter(nombre__startswith=q).order_by('nombre')
+
+        '''
+            select * 
+            from participantes
+            where nombre like 'n%'
+        '''
+    else:
+        data = Participante.objects.all().order_by('nombre')
+
+    ctx = {
+        'activo': activo,
+        'participantes': data,
+        'q': q
+    }
+
+    return render(request, 'registro/participantes.html', ctx)
+
+
+def eliminar_participante(request, id):
+    Participante.objects.get(pk=id).delete()
+    return redirect(reverse('participantes'))
+
+
+def editar_participante(request, id):
+    par = get_object_or_404(Participante, pk=id)
+
+    if request.method == 'POST':
+        nombre = request.POST.get('nombre')
+        apellido = request.POST.get('apellido')
+        correo = request.POST.get('correo')
+        twitter = request.POST.get('twitter')
+
+        par.nombre = nombre
+        par.apellido = apellido
+        par.correo = correo
+        par.twitter = twitter
+        par.save()
+
+    #par = Participante.objects.get(pk=id)    
+    data = Participante.objects.all().order_by('nombre')
+
+    ctx = {
+        'activo': 'participantes',
+        'participantes': data,
+        'p': par
+    }
+
+    return render(request, 'registro/participantes.html', ctx)
+
+def conferencistas(request):
+    if request.method == 'POST':
+        nombre = request.POST.get('nombre')
+        apellido = request.POST.get('apellido')
+        experiencia = request.POST.get('experiencia')
+
+        p = Conferencista(nombre=nombre, apellido=apellido, experiencia=experiencia)
+        p.save()
+
+        msj = f'El conferencista {nombre} {apellido} ha sido registrado con éxito.'
+
+        try:
+            bot.send_message(chat_id=GROUP_ID, text=msj)
+        except Exception as e:
+            msj += f'<br/><strong>{e}</strong>'
+
+        messages.add_message(request, messages.INFO, msj)
+    activo = 'conferencistas'
+    q = request.GET.get('q')
+
+    if q:
+        data = Conferencista.objects.filter(nombre__startswith=q).order_by('nombre')
+
+        '''
+            select * 
+            from conferencistas
+            where nombre like 'n%'
+        '''
+    else:
+        data = Conferencista.objects.all().order_by('nombre')
+
+    ctx = {
+        'activo': activo,
+        'conferencistas': data,
+        'q': q
+    }
+
+    return render(request, 'registro/conferencistas.html', ctx)
+
+def eliminar_conferencistas(request, id):
+    Conferencista.objects.get(pk=id).delete()
+    return redirect(reverse('conferencistas'))
